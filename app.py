@@ -67,13 +67,13 @@ st.markdown("---")
 st.header(t["global_param"])
 col_g1, col_g2 = st.columns(2)
 with col_g1:
-    total_thickness = st.number_input(t["total_thickness"], value=60.0, step=5.0, min_value=1.0)
+    total_thickness = st.number_input(t["total_thickness"], value=50.0, step=5.0, min_value=1.0)
 with col_g2:
-    hourly_output = st.number_input(t["hourly_output"], value=400.0, step=100.0, min_value=1.0)
+    hourly_output = st.number_input(t["hourly_output"], value=1000.0, step=100.0, min_value=1.0)
 
 st.markdown("---")
 
-# --- 2. DISTRIBUZIONE DEI 9 STRATI (A-I) ---
+# --- 2. DISTRIBUZIONE DEI 9 STRATI (A-I) CON MICRON IN TEMPO REALE ---
 st.header(t["layer_dist"])
 layers = [f"Layer {ch}" for ch in ["A", "B", "C", "D", "E", "F", "G", "H", "I"]]
 default_pacts = [15, 10, 10, 10, 10, 10, 10, 10, 15] 
@@ -82,7 +82,11 @@ col_layers = st.columns(9)
 layer_splits = {}
 for i, layer in enumerate(layers):
     with col_layers[i]:
+        # Input della percentuale volumetrica dello strato
         layer_splits[layer] = st.number_input(f"% {layer}", min_value=0.0, max_value=100.0, value=float(default_pacts[i]), step=1.0)
+        # Calcolo e visualizzazione immediata dello spessore in micron sotto l'input
+        current_layer_thick = total_thickness * (layer_splits[layer] / 100.0)
+        st.markdown(f"<p style='text-align: center; color: #555; font-size: 0.9rem;'><b>{current_layer_thick:.2f} µm</b></p>", unsafe_allow_html=True)
 
 total_layer_pct = sum(layer_splits.values())
 if abs(total_layer_pct - 100.0) > 0.01:
@@ -147,13 +151,11 @@ for layer in layers:
         avg_density, avg_cost_kg = 0.0, 0.0
     layer_metrics[layer] = {"density": avg_density, "cost_per_kg": avg_cost_kg}
 
-# Densità globale corretta
 total_film_density = sum([layer_splits[l] * layer_metrics[l]["density"] for l in layers]) / 100.0
 
 total_material_cost_kg = 0.0
 if total_film_density > 0:
     for l in layers:
-        # Frazione in peso (split spessore * densità strato) / (100 * densità globale)
         weight_fraction = (layer_splits[l] * layer_metrics[l]["density"]) / (total_film_density * 100.0)
         total_material_cost_kg += weight_fraction * layer_metrics[l]["cost_per_kg"]
 
@@ -168,7 +170,7 @@ m1.metric(t["cost_kg_film"], f"€ {total_material_cost_kg:.3f}")
 m2.metric(t["density_calc"], f"{total_film_density:.3f} g/cm³")
 m3.metric(t["total_hourly_cost"], f"€ {hourly_material_cost:,.2f}")
 
-# --- FUNZIONE GENERAZIONE PDF CON FPDF2 (CORRETTA) ---
+# --- FUNZIONE GENERAZIONE PDF CON FPDF2 ---
 def generate_fpdf():
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(left=12, top=12, right=12)
@@ -216,7 +218,6 @@ def generate_fpdf():
     
     for l in layers:
         thick_um = total_thickness * (layer_splits[l] / 100.0)
-        # CALCOLO FRAZIONE IN PESO IN % CORRETTO
         weight_pct = ((layer_splits[l] * layer_metrics[l]["density"]) / (total_film_density * 100.0)) * 100 if total_film_density > 0 else 0
         
         comp_text = ""
@@ -255,7 +256,6 @@ with c1:
     thickness_data = []
     for l in layers:
         thick_um = total_thickness * (layer_splits[l] / 100.0)
-        # CORREZIONE FORMULA SCALA TABELLA STREAMLIT
         weight_pct = ((layer_splits[l] * layer_metrics[l]["density"]) / (total_film_density * 100.0)) * 100 if total_film_density > 0 else 0
         
         thickness_data.append({

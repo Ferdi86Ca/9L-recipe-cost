@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from weasyprint import HTML
-import base64
+from fpdf import FPDF
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Calcolatore Costo Film 9-Strati", layout="wide")
@@ -53,7 +52,7 @@ lang_dict = {
     }
 }
 
-# --- GESTIONE LINGUA (DEFAULT: ITALIANO) ---
+# --- GESTIONE LINGUA ---
 if 'lang' not in st.session_state:
     st.session_state['lang'] = "Italiano"
 
@@ -68,9 +67,9 @@ st.markdown("---")
 st.header(t["global_param"])
 col_g1, col_g2 = st.columns(2)
 with col_g1:
-    total_thickness = st.number_input(t["total_thickness"], value=50.0, step=5.0, min_value=1.0)
+    total_thickness = st.number_input(t["total_thickness"], value=60.0, step=5.0, min_value=1.0)
 with col_g2:
-    hourly_output = st.number_input(t["hourly_output"], value=1000.0, step=100.0, min_value=1.0)
+    hourly_output = st.number_input(t["hourly_output"], value=400.0, step=100.0, min_value=1.0)
 
 st.markdown("---")
 
@@ -87,11 +86,11 @@ for i, layer in enumerate(layers):
 
 total_layer_pct = sum(layer_splits.values())
 if abs(total_layer_pct - 100.0) > 0.01:
-    st.error(f"⚠️ Total layer distribution is {total_layer_pct}%. It MUST equal 100%! / La somma deve essere 100%!")
+    st.error(f"⚠️ Total layer distribution is {total_layer_pct}%. It MUST equal 100%!")
 
 st.markdown("---")
 
-# --- 3. CONFIGURAZIONE MATRICI ESTRUSORI (7 COMPONENTI CIASCUNO) ---
+# --- 3. CONFIGURAZIONE MATRICI ESTRUSORI ---
 st.header(t["extruder_config"])
 
 recipe_data = {}
@@ -108,7 +107,6 @@ for i, layer in enumerate(layers):
         cols_header[3].markdown(f"**{t['cost_euro_kg']}**")
         
         layer_components = []
-        
         def_pcts = [100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
         def_dens = [0.92, 0.90, 1.14, 1.17, 0.93, 0.92, 0.92]
         def_costs = [1.35, 1.40, 3.60, 8.80, 2.80, 1.35, 1.35]
@@ -132,10 +130,6 @@ for i, layer in enumerate(layers):
                     "cost": comp_cost
                 })
         
-        total_comp_pct = sum([c["pct_in_layer"] for c in layer_components])
-        if abs(total_comp_pct - 100.0) > 0.01 and layer_splits[layer] > 0:
-            st.warning(f"⚠️ {layer} components sum up to {total_comp_pct}%. It should be 100% if the layer is active.")
-            
         recipe_data[layer] = layer_components
 
 # --- 4. ENGINE DI CALCOLO COESTRUSIONE ---
@@ -145,22 +139,21 @@ for layer in layers:
     if not components:
         layer_metrics[layer] = {"density": 0.0, "cost_per_kg": 0.0}
         continue
-    
     total_pct = sum([c["pct_in_layer"] for c in components])
-    
     if total_pct > 0:
         avg_density = sum([c["pct_in_layer"] * c["density"] for c in components]) / total_pct
         avg_cost_kg = sum([c["pct_in_layer"] * c["cost"] for c in components]) / total_pct
     else:
         avg_density, avg_cost_kg = 0.0, 0.0
-        
     layer_metrics[layer] = {"density": avg_density, "cost_per_kg": avg_cost_kg}
 
+# Densità globale corretta
 total_film_density = sum([layer_splits[l] * layer_metrics[l]["density"] for l in layers]) / 100.0
 
 total_material_cost_kg = 0.0
 if total_film_density > 0:
     for l in layers:
+        # Frazione in peso (split spessore * densità strato) / (100 * densità globale)
         weight_fraction = (layer_splits[l] * layer_metrics[l]["density"]) / (total_film_density * 100.0)
         total_material_cost_kg += weight_fraction * layer_metrics[l]["cost_per_kg"]
 
@@ -175,204 +168,99 @@ m1.metric(t["cost_kg_film"], f"€ {total_material_cost_kg:.3f}")
 m2.metric(t["density_calc"], f"{total_film_density:.3f} g/cm³")
 m3.metric(t["total_hourly_cost"], f"€ {hourly_material_cost:,.2f}")
 
-# --- FUNZIONE GENERAZIONE PDF COMACT ED ELIDIBILE SU A4 ---
-def generate_pdf():
-    # Creazione della tabella di riepilogo globale in HTML
-    summary_rows_html = ""
+# --- FUNZIONE GENERAZIONE PDF CON FPDF2 (CORRETTA) ---
+def generate_fpdf():
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(left=12, top=12, right=12)
+    pdf.add_page()
+    
+    pdf.set_fill_color(0, 45, 98)
+    pdf.rect(12, 12, 186, 18, "F")
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(186, 10, f"  {t['pdf_title']}", ln=True, align="L")
+    pdf.set_font("Arial", "", 8)
+    pdf.cell(186, 2, "   Generated via Cast Film Advisor Matrix Engine", ln=True, align="L")
+    pdf.ln(8)
+    
+    pdf.set_fill_color(240, 244, 248)
+    pdf.rect(12, 35, 186, 16, "F")
+    pdf.set_text_color(0, 45, 98)
+    pdf.set_font("Arial", "B", 10)
+    
+    pdf.set_y(36)
+    pdf.cell(46, 6, f"Cost: EUR {total_material_cost_kg:.3f}/kg", align="C")
+    pdf.cell(46, 6, f"Hourly Cost: EUR {hourly_material_cost:,.2f}/h", align="C")
+    pdf.cell(46, 6, f"Thick: {total_thickness:.1f} um", align="C")
+    pdf.cell(48, 6, f"Density: {total_film_density:.3f} g/cm3", align="C")
+    pdf.ln(12)
+    
+    pdf.set_text_color(0, 45, 98)
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(186, 8, "STRUCTURE & COMPONENT RECIPE BREAKDOWN", ln=True)
+    pdf.ln(2)
+    
+    pdf.set_fill_color(0, 45, 98)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(15, 7, "Layer", border=1, align="C", fill=True)
+    pdf.cell(15, 7, "% Vol", border=1, align="C", fill=True)
+    pdf.cell(20, 7, "Thick (um)", border=1, align="C", fill=True)
+    pdf.cell(15, 7, "% Wt", border=1, align="C", fill=True)
+    pdf.cell(23, 7, "Cost (EUR)", border=1, align="C", fill=True)
+    pdf.cell(98, 7, "Dosing Components Structure", border=1, align="L", fill=True)
+    pdf.ln()
+    
+    pdf.set_text_color(50, 50, 50)
+    pdf.set_font("Arial", "", 8.5)
+    
     for l in layers:
         thick_um = total_thickness * (layer_splits[l] / 100.0)
-        weight_pct = ((layer_splits[l] * layer_metrics[l]["density"]) / total_film_density) * 100 if total_film_density > 0 else 0
+        # CALCOLO FRAZIONE IN PESO IN % CORRETTO
+        weight_pct = ((layer_splits[l] * layer_metrics[l]["density"]) / (total_film_density * 100.0)) * 100 if total_film_density > 0 else 0
         
-        # Estrazione delle ricette interne condensatissime
-        comp_details = ""
+        comp_text = ""
         for c in recipe_data[l]:
-            comp_details += f"• {c['name']}: {c['pct_in_layer']}% (ρ:{c['density']} - €{c['cost']:.2f})<br>"
+            comp_text += f"{c['name']}: {c['pct_in_layer']}% | "
+        if comp_text.endswith(" | "): 
+            comp_text = comp_text[:-3]
             
-        summary_rows_html += f"""
-        <tr>
-            <td style="font-weight: bold; background-color: #f9f9f9;">{l}</td>
-            <td>{layer_splits[l]:.1f} %</td>
-            <td>{thick_um:.2f} µm</td>
-            <td>{weight_pct:.1f} %</td>
-            <td>€ {layer_metrics[l]['cost_per_kg']:.2f}</td>
-            <td style="font-size: 9pt; text-align: left; padding-left: 8px;">{comp_details if comp_details else 'Empty / Vuoto'}</td>
-        </tr>
-        """
+        pdf.cell(15, 7, l.replace("Layer ", ""), border=1, align="C")
+        pdf.cell(15, 7, f"{layer_splits[l]:.1f}", border=1, align="C")
+        pdf.cell(20, 7, f"{thick_um:.2f}", border=1, align="C")
+        pdf.cell(15, 7, f"{weight_pct:.1f}", border=1, align="C")
+        pdf.cell(23, 7, f"{layer_metrics[l]['cost_per_kg']:.2f}", border=1, align="C")
+        pdf.cell(98, 7, f" {comp_text[:60]}", border=1, align="L")
+        pdf.ln()
+        
+    return pdf.output()
 
-    # Template HTML ad alta densità informativa studiato per un foglio singolo A4
-    html_content = f"""
-    <html>
-    <head>
-        <style>
-            @page {{
-                size: A4;
-                margin: 12mm 10mm 12mm 10mm;
-            }}
-            body {{
-                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-                color: #333;
-                margin: 0;
-                padding: 0;
-                font-size: 10pt;
-                line-height: 1.3;
-            }}
-            .header {{
-                border-bottom: 2px solid #002D62;
-                padding-bottom: 6px;
-                margin-bottom: 12px;
-            }}
-            .header h1 {{
-                font-size: 16pt;
-                color: #002D62;
-                margin: 0 0 4px 0;
-                text-transform: uppercase;
-                font-weight: bold;
-            }}
-            .kpi-container {{
-                margin-bottom: 12px;
-                background-color: #F0F4F8;
-                padding: 10px;
-                border-radius: 4px;
-                border-left: 4px solid #002D62;
-            }}
-            .kpi-table {{
-                width: 100%;
-                border-collapse: collapse;
-            }}
-            .kpi-table td {{
-                padding: 4px;
-                width: 25%;
-                vertical-align: top;
-            }}
-            .kpi-label {{
-                font-size: 8pt;
-                text-transform: uppercase;
-                color: #555;
-                margin-bottom: 2px;
-            }}
-            .kpi-value {{
-                font-size: 13pt;
-                font-weight: bold;
-                color: #002D62;
-            }}
-            h2 {{
-                font-size: 11pt;
-                color: #002D62;
-                margin: 10px 0 6px 0;
-                border-bottom: 1px solid #ddd;
-                padding-bottom: 2px;
-            }}
-            .main-table {{
-                width: 100%;
-                border-collapse: collapse;
-                margin-bottom: 10px;
-                font-size: 9.5pt;
-            }}
-            .main-table th {{
-                background-color: #002D62;
-                color: white;
-                font-weight: bold;
-                padding: 6px;
-                text-align: center;
-                font-size: 9pt;
-            }}
-            .main-table td {{
-                border: 1px solid #ddd;
-                padding: 5px;
-                text-align: center;
-                vertical-align: middle;
-            }}
-            .footer {{
-                position: fixed;
-                bottom: 0;
-                width: 100%;
-                border-top: 1px solid #ddd;
-                padding-top: 4px;
-                font-size: 8pt;
-                color: #777;
-                text-align: center;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>{t['pdf_title']}</h1>
-            <div style="font-size: 9pt; color:#666;">Generated via Cast Film Advisor | Live Calculation Matrix</div>
-        </div>
-
-        <div class="kpi-container">
-            <table class="kpi-table">
-                <tr>
-                    <td>
-                        <div class="kpi-label">{t['cost_kg_film']}</div>
-                        <div class="kpi-value">€ {total_material_cost_kg:.3f}</div>
-                    </td>
-                    <td>
-                        <div class="kpi-label">{t['total_hourly_cost']}</div>
-                        <div class="kpi-value">€ {hourly_material_cost:,.2f}</div>
-                    </td>
-                    <td>
-                        <div class="kpi-label">{t['total_thickness']}</div>
-                        <div class="kpi-value">{total_thickness:.1f} µm</div>
-                    </td>
-                    <td>
-                        <div class="kpi-label">{t['density_calc']}</div>
-                        <div class="kpi-value">{total_film_density:.3f} g/cm³</div>
-                    </td>
-                </tr>
-            </table>
-        </div>
-
-        <h2>STRUCTURE & COMPONENT RECIPE BREAKDOWN</h2>
-        <table class="main-table">
-            <thead>
-                <tr>
-                    <th style="width: 10%;">{t['layer_name']}</th>
-                    <th style="width: 10%;">% Geom (Vol)</th>
-                    <th style="width: 12%;">Thickness</th>
-                    <th style="width: 10%;">% Weight</th>
-                    <th style="width: 13%;">Cost (€/kg)</th>
-                    <th style="width: 45%;">Dosing Recipe Components (% / Density / Cost)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {summary_rows_html}
-            </tbody>
-        </table>
-
-        <div class="footer">
-            Confidential Technical Data Sheet - Formato A4 Ottimizzato per la Stampa Diretto
-        </div>
-    </body>
-    </html>
-    """
-    # Compilazione tramite WeasyPrint in un oggetto binario
-    pdf_bytes = HTML(string=html_content).write_pdf()
-    return pdf_bytes
-
-# --- AGGIUNTA SEZIONE EXPORT NELL'INTERFACCIA ---
+# --- INTERFACCIA DOWNLOAD ---
 st.markdown("### 🖨️ Export & Print Management")
 try:
-    pdf_data = generate_pdf()
+    pdf_bytes = generate_fpdf()
     st.download_button(
         label=t["btn_pdf"],
-        data=pdf_data,
-        file_name="9_Layer_Recipe_Report.pdf",
+        data=pdf_bytes,
+        file_name="Report_Ricetta_9Strati.pdf",
         mime="application/pdf"
     )
 except Exception as e:
-    st.error(f"Errore durante la compilazione del PDF: {e}")
+    st.error(f"Errore generazione PDF: {e}")
 
-# --- GRAFICI E TABELLA STANDARD DI STREAMLIT ---
+# --- TABELLA E GRAFICI SCREEN ---
 c1, c2 = st.columns([2, 3])
 with c1:
     st.subheader(t["layer_thick_table"])
     thickness_data = []
     for l in layers:
         thick_um = total_thickness * (layer_splits[l] / 100.0)
-        weight_pct = ((layer_splits[l] * layer_metrics[l]["density"]) / total_film_density) * 100 if total_film_density > 0 else 0
+        # CORREZIONE FORMULA SCALA TABELLA STREAMLIT
+        weight_pct = ((layer_splits[l] * layer_metrics[l]["density"]) / (total_film_density * 100.0)) * 100 if total_film_density > 0 else 0
+        
         thickness_data.append({
-            t["layer_name"]: l,
+            t["layer_name"]: l.replace("Layer ", ""),
+            "% Vol": f"{layer_splits[l]:.1f} %",
             "Thickness (µm)": f"{thick_um:.2f} µm",
             "Weight %": f"{weight_pct:.1f} %",
             "Cost (€/kg)": f"€ {layer_metrics[l]['cost_per_kg']:.2f}"
@@ -386,7 +274,7 @@ with c2:
     
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=layers,
+        x=[l.replace("Layer ", "") for l in layers],
         y=layer_thicknesses,
         text=[f"€{c:.2f}/kg" for c in layer_costs],
         textposition='auto',

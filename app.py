@@ -15,6 +15,7 @@ lang_dict = {
         "hourly_output": "Portata Oraria Target (kg/h)",
         "layer_dist": "🥞 Configurazione Spessori dei 9 Strati",
         "extruder_config": "🧪 Dettagli ricetta",
+        "layer_sub_title": "ricetta estrusore {}",
         "layer_name": "Strato",
         "pct_film": "% del Film",
         "calc_results": "📊 Valutazione Economica e Tecnica",
@@ -37,6 +38,7 @@ lang_dict = {
         "hourly_output": "Target Production Output (kg/h)",
         "layer_dist": "🥞 9-Layer Distribution Set-points",
         "extruder_config": "🧪 Recipe Details",
+        "layer_sub_title": "Extruder {} Recipe",
         "layer_name": "Layer",
         "pct_film": "% of Film",
         "calc_results": "📊 Economic & Technical Evaluation",
@@ -65,7 +67,7 @@ t = lang_dict[st.session_state['lang']]
 st.title(t["title"])
 st.markdown("---")
 
-# --- 1. PARAMETRI GLOBALI (AGGIORNATI COI NUOVI INPUT DI DEFAULT) ---
+# --- 1. PARAMETRI GLOBALI ---
 st.header(t["global_param"])
 col_g1, col_g2 = st.columns(2)
 with col_g1:
@@ -94,7 +96,7 @@ if abs(total_layer_pct - 100.0) > 0.01:
 
 st.markdown("---")
 
-# --- 3. DETTAGLI RICETTA (EX CONFIGURAZIONE MATRICI ESTRUSORI) ---
+# --- 3. DETTAGLI RICETTA ---
 st.header(t["extruder_config"])
 
 recipe_data = {}
@@ -102,7 +104,11 @@ tabs = st.tabs(layers)
 
 for i, layer in enumerate(layers):
     with tabs[i]:
-        st.subheader(f"⚙️ Dosing Matrix - {layer} ({layer_splits[layer]}% of film)")
+        # Estrae solo la lettera identificativa dello strato (es: "A" da "Layer A")
+        layer_letter = layer.replace("Layer ", "")
+        
+        # AGGIORNAMENTO: Visualizzazione dinamica e pulita della sottosezione dell'estrusore
+        st.subheader(f"⚙️ {t['layer_sub_title'].format(layer_letter)}")
         
         cols_header = st.columns([2, 2, 2, 2])
         cols_header[0].markdown(f"**{t['component']}**")
@@ -170,7 +176,7 @@ m1.metric(t["cost_kg_film"], f"€ {total_material_cost_kg:.3f}")
 m2.metric(t["density_calc"], f"{total_film_density:.3f} g/cm³")
 m3.metric(t["total_hourly_cost"], f"€ {hourly_material_cost:,.2f}")
 
-# --- FUNZIONE GENERAZIONE PDF CON FIX PER I BINARI (FPDF2) ---
+# --- FUNZIONE GENERAZIONE PDF CON FPDF2 ---
 def generate_fpdf():
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(left=12, top=12, right=12)
@@ -234,8 +240,6 @@ def generate_fpdf():
         pdf.cell(98, 7, f" {comp_text[:60]}", border=1, align="L")
         pdf.ln()
         
-    # FIX IMPORTANTE: fpdf2 su alcune versioni restituisce un bytearray. 
-    # Lo convertiamo esplicitamente in standard bytes() per non far crashare il download_button di Streamlit.
     return bytes(pdf.output())
 
 # --- INTERFACCIA DOWNLOAD ---

@@ -14,7 +14,7 @@ lang_dict = {
         "total_thickness": "Spessore Totale Film (µm)",
         "hourly_output": "Portata Oraria Target (kg/h)",
         "layer_dist": "🥞 Configurazione Spessori dei 9 Strati",
-        "extruder_config": "🧪 Sistemi di Dosaggio Estrusori (Max 7 Componenti per Strato)",
+        "extruder_config": "🧪 Dettagli ricetta",
         "layer_name": "Strato",
         "pct_film": "% del Film",
         "calc_results": "📊 Valutazione Economica e Tecnica",
@@ -27,7 +27,8 @@ lang_dict = {
         "density": "Densità (g/cm³)",
         "cost_euro_kg": "Costo (€/kg)",
         "btn_pdf": "📄 Genera Report PDF (Pronto per A4)",
-        "pdf_title": "REPORT TECNICO - STRUTTURA COESTRUSA 9 STRATI"
+        "pdf_title": "REPORT TECNICO - STRUTTURA COESTRUSA 9 STRATI",
+        "error_100": "⚠️ La distribuzione totale degli strati è {}. DEVE essere esattamente 100%!"
     },
     "English": {
         "title": "9-Layer Coextrusion Film Cost & Recipe Calculator",
@@ -35,7 +36,7 @@ lang_dict = {
         "total_thickness": "Total Film Thickness (µm)",
         "hourly_output": "Target Production Output (kg/h)",
         "layer_dist": "🥞 9-Layer Distribution Set-points",
-        "extruder_config": "🧪 Extruder Dosing Systems (Max 7 Components per Layer)",
+        "extruder_config": "🧪 Recipe Details",
         "layer_name": "Layer",
         "pct_film": "% of Film",
         "calc_results": "📊 Economic & Technical Evaluation",
@@ -48,7 +49,8 @@ lang_dict = {
         "density": "Density (g/cm³)",
         "cost_euro_kg": "Cost (€/kg)",
         "btn_pdf": "📄 Generate PDF Report (A4 Ready)",
-        "pdf_title": "TECHNICAL REPORT - 9-LAYER COEXTRUSION STRUCTURE"
+        "pdf_title": "TECHNICAL REPORT - 9-LAYER COEXTRUSION STRUCTURE",
+        "error_100": "⚠️ Total layer distribution is {}. It MUST equal 100%!"
     }
 }
 
@@ -63,17 +65,17 @@ t = lang_dict[st.session_state['lang']]
 st.title(t["title"])
 st.markdown("---")
 
-# --- 1. PARAMETRI GLOBALI ---
+# --- 1. PARAMETRI GLOBALI (AGGIORNATI COI NUOVI INPUT DI DEFAULT) ---
 st.header(t["global_param"])
 col_g1, col_g2 = st.columns(2)
 with col_g1:
-    total_thickness = st.number_input(t["total_thickness"], value=50.0, step=5.0, min_value=1.0)
+    total_thickness = st.number_input(t["total_thickness"], value=60.0, step=5.0, min_value=1.0)
 with col_g2:
-    hourly_output = st.number_input(t["hourly_output"], value=1000.0, step=100.0, min_value=1.0)
+    hourly_output = st.number_input(t["hourly_output"], value=400.0, step=50.0, min_value=1.0)
 
 st.markdown("---")
 
-# --- 2. DISTRIBUZIONE DEI 9 STRATI (A-I) CON MICRON IN TEMPO REALE ---
+# --- 2. DISTRIBUZIONE DEI 9 STRATI (A-I) ---
 st.header(t["layer_dist"])
 layers = [f"Layer {ch}" for ch in ["A", "B", "C", "D", "E", "F", "G", "H", "I"]]
 default_pacts = [15, 10, 10, 10, 10, 10, 10, 10, 15] 
@@ -82,19 +84,17 @@ col_layers = st.columns(9)
 layer_splits = {}
 for i, layer in enumerate(layers):
     with col_layers[i]:
-        # Input della percentuale volumetrica dello strato
         layer_splits[layer] = st.number_input(f"% {layer}", min_value=0.0, max_value=100.0, value=float(default_pacts[i]), step=1.0)
-        # Calcolo e visualizzazione immediata dello spessore in micron sotto l'input
         current_layer_thick = total_thickness * (layer_splits[layer] / 100.0)
         st.markdown(f"<p style='text-align: center; color: #555; font-size: 0.9rem;'><b>{current_layer_thick:.2f} µm</b></p>", unsafe_allow_html=True)
 
 total_layer_pct = sum(layer_splits.values())
 if abs(total_layer_pct - 100.0) > 0.01:
-    st.error(f"⚠️ Total layer distribution is {total_layer_pct}%. It MUST equal 100%!")
+    st.error(t["error_100"].format(f"{total_layer_pct}%"))
 
 st.markdown("---")
 
-# --- 3. CONFIGURAZIONE MATRICI ESTRUSORI ---
+# --- 3. DETTAGLI RICETTA (EX CONFIGURAZIONE MATRICI ESTRUSORI) ---
 st.header(t["extruder_config"])
 
 recipe_data = {}
@@ -170,7 +170,7 @@ m1.metric(t["cost_kg_film"], f"€ {total_material_cost_kg:.3f}")
 m2.metric(t["density_calc"], f"{total_film_density:.3f} g/cm³")
 m3.metric(t["total_hourly_cost"], f"€ {hourly_material_cost:,.2f}")
 
-# --- FUNZIONE GENERAZIONE PDF CON FPDF2 ---
+# --- FUNZIONE GENERAZIONE PDF CON FIX PER I BINARI (FPDF2) ---
 def generate_fpdf():
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(left=12, top=12, right=12)
@@ -234,7 +234,9 @@ def generate_fpdf():
         pdf.cell(98, 7, f" {comp_text[:60]}", border=1, align="L")
         pdf.ln()
         
-    return pdf.output()
+    # FIX IMPORTANTE: fpdf2 su alcune versioni restituisce un bytearray. 
+    # Lo convertiamo esplicitamente in standard bytes() per non far crashare il download_button di Streamlit.
+    return bytes(pdf.output())
 
 # --- INTERFACCIA DOWNLOAD ---
 st.markdown("### 🖨️ Export & Print Management")
